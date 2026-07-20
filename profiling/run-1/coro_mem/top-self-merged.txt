@@ -1,0 +1,45 @@
+# Total samples (merged across runs): 9628628619
+# Unique leaf functions: 72
+
+  Overhead       Samples  Function
+----------  ------------  ------------------------------------------------------------
+    44.35%    4270270266  [libc.so.6]
+     9.40%     904904904  malloc
+     7.38%     710710710  :1164234
+     5.07%     488488488  cfree
+     4.19%     403403403  std::__atomic_base<coro::memory::MemoryPool<64ul, 64ul>::FreeBlock*>::compare_exchange_weak
+     3.42%     329329329  coro::memory::MemoryPool<64ul, 64ul>::allocate
+     2.92%     281281281  operator new
+     2.58%     248248248  simple_task
+     2.10%     202202202  std::__atomic_base<unsigned long>::store
+     2.04%     196196196  std::__atomic_base<unsigned long>::load
+     1.98%     190190190  operator
+     1.89%     182182182  coro::WorkStealQueue<unsigned long>::resize
+     1.27%     122122122  coro::memory::MemoryPool<64ul, 64ul>::deallocate
+     1.22%     117117117  std::__atomic_base<coro::memory::MemoryPool<64ul, 64ul>::FreeBlock*>::load
+     1.21%     116116116  void*& std::vector<void*, std::allocator<void*> >::emplace_back<void*>
+     0.95%      91091091  operator delete
+     0.85%      82082082  pthread_mutex_lock
+     0.58%      56056056  pthread_mutex_unlock
+     0.48%      46046046  std::__uniq_ptr_impl<TestObject, std::default_delete<TestObject> >::__uniq_ptr_impl
+     0.38%      37037037  std::optional<int>::value
+     0.36%      35035035  decltype 
+     0.33%      32032032  std::_Function_handler<void 
+     0.31%      30030030  std::__n4861::coroutine_handle<coro::Task<int>::Promise>::operator bool
+     0.31%      30030030  void std::_Destroy_aux<false>::__destroy<coro::Task<int>*>
+     0.31%      30030030  std::__exception_ptr::exception_ptr::~exception_ptr
+     0.30%      29029029  std::__n4861::coroutine_handle<coro::Task<int>::Promise>::resume
+     0.28%      27027027  benchmark_work_stealing
+     0.26%      25025025  coro::Task<int>::result
+     0.25%      24024024  benchmark_memory_pool
+     0.24%      23023023  std::_Head_base<0ul, TestObject*, false>::_Head_base<TestObject*&>
+     0.21%      20020020  malloc@plt
+     0.20%      19019019  coro::memory::ObjectPool<TestObject, 64ul>::acquire
+     0.18%      17017017  void std::vector<coro::Task<int>, std::allocator<coro::Task<int> > >::_M_realloc_insert<coro::Task<int> >
+     0.18%      17017017  std::function<void 
+     0.17%      16016016  std::__n4861::coroutine_handle<coro::Task<int>::Promise>::promise
+     0.17%      16016016  std::__n4861::coroutine_handle<std::__n4861::noop_coroutine_promise>::__frame::__dummy_resume_destroy
+     0.16%      15015015  std::__n4861::coroutine_handle<coro::Task<int>::Promise>::destroy
+     0.14%      13013013  std::mutex::lock
+     0.11%      11011011  std::unique_ptr<TestObject, std::function<void 
+     0.10%      10010010  benchmark_channel

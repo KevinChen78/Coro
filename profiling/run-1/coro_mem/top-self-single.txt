@@ -1,0 +1,133 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 983  of event 'task-clock:u'
+# Event count (approx.): 983983983
+#
+# Overhead  Command          Shared Object        Symbol                                                                                                                                                                                                                                                                                                                                                                                      
+# ........  ...............  ...................  ............................................................................................................................................................................................................................................................................................................................................................................................
+#
+    12.72%  memory_bench_ns  memory_bench_ns      [.] benchmark_memory_pool()
+    10.27%  memory_bench_ns  libc.so.6            [.] malloc
+     8.04%  memory_bench_ns  memory_bench_ns      [.] benchmark_work_stealing()
+     5.49%  memory_bench_ns  libc.so.6            [.] cfree
+     2.75%  memory_bench_ns  memory_bench_ns      [.] benchmark_coroutine_creation()
+     2.54%  memory_bench_ns  libstdc++.so.6.0.33  [.] operator new(unsigned long)
+     2.44%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf21
+     2.03%  memory_bench_ns  memory_bench_ns      [.] simple_task(simple_task(int)::_Z11simple_taski.Frame*) [clone .actor]
+     1.93%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c61
+     1.93%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac51a
+     1.73%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1f7
+     1.63%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab26b
+     1.53%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf6b
+     1.53%  memory_bench_ns  memory_bench_ns      [.] benchmark_object_pool()
+     1.42%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9cee
+     1.42%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab5ad
+     1.42%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf4f
+     1.42%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf9b
+     1.32%  memory_bench_ns  libc.so.6            [.] pthread_mutex_lock
+     1.32%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1a4
+     1.22%  memory_bench_ns  libc.so.6            [.] 0x00000000000abafd
+     1.12%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab5ba
+     1.02%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1ae
+     1.02%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1db
+     1.02%  memory_bench_ns  libc.so.6            [.] 0x00000000000aba73
+     1.02%  memory_bench_ns  memory_bench_ns      [.] simple_task(int)
+     0.92%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1ca
+     0.92%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab22a
+     0.92%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab288
+     0.92%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf59
+     0.81%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9cf8
+     0.81%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab1b7
+     0.81%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf33
+     0.81%  memory_bench_ns  libstdc++.so.6.0.33  [.] operator delete(void*)
+     0.71%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab75d
+     0.71%  memory_bench_ns  memory_bench_ns      [.] simple_task(simple_task(int)::_Z11simple_taski.Frame*) [clone .destroy]
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c77
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab19a
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab208
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab24d
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab599
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab77a
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000abc99
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac4de
+     0.61%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac4e8
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000a91fa
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c51
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab274
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000abb0e
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000abcc7
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac501
+     0.51%  memory_bench_ns  libc.so.6            [.] 0x000000000018954a
+     0.41%  memory_bench_ns  libc.so.6            [.] pthread_mutex_unlock
+     0.41%  memory_bench_ns  libc.so.6            [.] 0x00000000000a91f0
+     0.41%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab218
+     0.41%  memory_bench_ns  memory_bench_ns      [.] benchmark_channel()
+     0.41%  memory_bench_ns  memory_bench_ns      [.] operator delete(void*)@plt
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c69
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c95
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab184
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab570
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000abd07
+     0.31%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf80
+     0.31%  memory_bench_ns  libstdc++.so.6.0.33  [.] malloc@plt
+     0.31%  memory_bench_ns  memory_bench_ns      [.] operator new(unsigned long)@plt
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9b41
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c5d
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000aab0a
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000aab5e
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab29d
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab2b0
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab581
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab5ca
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab7de
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab806
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf3d
+     0.20%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac51e
+     0.20%  memory_bench_ns  memory_bench_ns      [.] std::_Function_handler<void (TestObject*), coro::memory::ObjectPool<TestObject, 64ul>::acquire()::{lambda(TestObject*)#1}>::_M_invoke(std::_Any_data const&, TestObject*&&)
+     0.20%  memory_bench_ns  memory_bench_ns      [.] std::__n4861::coroutine_handle<std::__n4861::noop_coroutine_promise>::__frame::__dummy_resume_destroy()
+     0.20%  memory_bench_ns  memory_bench_ns      [.] std::unique_ptr<TestObject, std::default_delete<TestObject> >& std::deque<std::unique_ptr<TestObject, std::default_delete<TestObject> >, std::allocator<std::unique_ptr<TestObject, std::default_delete<TestObject> > > >::emplace_back<std::unique_ptr<TestObject, std::default_delete<TestObject> > >(std::unique_ptr<TestObject, std::default_delete<TestObject> >&&) [clone .isra.0]
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a91f6
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9ae9
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9afd
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9b19
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c1c
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c25
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c82
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9c9f
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000a9cff
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000aaf9e
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000aafe2
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000aaffd
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab003
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab025
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab02f
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab170
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab23b
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab265
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab764
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab785
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ab81e
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000aba7c
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abaea
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abcdc
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abce4
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abce8
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abcf8
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abd03
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abf2b
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000abfac
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac00f
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac3da
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac40a
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac438
+     0.10%  memory_bench_ns  libc.so.6            [.] 0x00000000000ac507
+     0.10%  memory_bench_ns  libstdc++.so.6.0.33  [.] free@plt
+     0.10%  memory_bench_ns  memory_bench_ns      [.] std::_Function_handler<void (TestObject*), coro::memory::ObjectPool<TestObject, 64ul>::acquire()::{lambda(TestObject*)#1}>::_M_manager(std::_Any_data&, std::_Any_data const&, std::_Manager_operation)
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

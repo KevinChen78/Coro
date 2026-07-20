@@ -1,0 +1,38 @@
+# Build artifacts
+build/
+build-prof/
+*.o
+*.obj
+*.exe
+*.a
+*.lib
+*.so
+*.dll
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cmake
+
+# Profiling raw data (keep REPORT.md, score.py, flamegraph.svg, top-*.txt, scores.json)
+profiling/**/perf.data
+profiling/**/perf.data.old
+profiling/**/perf.*.data
+profiling/**/perf.*.data.old
+profiling/**/perf.*.script
+profiling/**/perf.script
+profiling/**/folded.txt
+profiling/**/*.out
+profiling/**/benchmark_data/
+profiling/**/logs/
+profiling/**/data/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

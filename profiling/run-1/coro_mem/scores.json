@@ -1,0 +1,166 @@
+{
+  "scenario": "coro memory_bench (MemoryPool)",
+  "kind": "lib",
+  "composite_score": 67.1,
+  "grade": "C\uff08\u4e2d\u7b49\uff09",
+  "weights": {
+    "K1": 15,
+    "K2": 15,
+    "K3_K4": 15,
+    "K5": 10,
+    "K6": 10,
+    "K7": 10,
+    "K8": 5,
+    "K9": 10,
+    "K10": 10
+  },
+  "kpi_scores": {
+    "K1": 58.4,
+    "K2": 0.0,
+    "K3": 100.0,
+    "K4": 0.0,
+    "K5": 100.0,
+    "K6": 100.0,
+    "K7": 100.0,
+    "K8": 70.0,
+    "K9": 73.3,
+    "K10": 99.8
+  },
+  "kpi_raw": {
+    "K1_top5_sum_pct": 70.39,
+    "K1_top5_funcs": [
+      {
+        "func": "[libc.so.6]",
+        "pct": 44.35
+      },
+      {
+        "func": "malloc",
+        "pct": 9.4
+      },
+      {
+        "func": ":1164234",
+        "pct": 7.38
+      },
+      {
+        "func": "cfree",
+        "pct": 5.07
+      },
+      {
+        "func": "std::__atomic_base<coro::memory::MemoryPool<64ul, 64ul>::FreeBlock*>::compare_exchange_weak",
+        "pct": 4.19
+      }
+    ],
+    "K2_alloc_pct": 18.55,
+    "K3_lock_pct": 1.57,
+    "K4_atomic_pct": 9.55,
+    "K5_syscall_io_pct": 0.0,
+    "K6_idle_wait_pct": 0.0,
+    "K7_compiler_pct": 0.0,
+    "K8_leaves_in_top90pct": 15,
+    "K9_stack_depth_p50": 12,
+    "K9_stack_depth_p90": 19,
+    "K10_deviation_pct": 10.04
+  },
+  "kpi_matches": {
+    "K2_alloc": [
+      [
+        "malloc",
+        9.4
+      ],
+      [
+        "cfree",
+        5.07
+      ],
+      [
+        "operator new",
+        2.92
+      ],
+      [
+        "operator delete",
+        0.95
+      ],
+      [
+        "malloc@plt",
+        0.21
+      ]
+    ],
+    "K3_lock": [
+      [
+        "pthread_mutex_lock",
+        0.85
+      ],
+      [
+        "pthread_mutex_unlock",
+        0.58
+      ],
+      [
+        "std::mutex::lock",
+        0.14
+      ]
+    ],
+    "K4_atomic": [
+      [
+        "std::__atomic_base<coro::memory::MemoryPool<64ul, 64ul>::FreeBlock*>::compare_exchange_weak",
+        4.19
+      ],
+      [
+        "std::__atomic_base<unsigned long>::store",
+        2.1
+      ],
+      [
+        "std::__atomic_base<unsigned long>::load",
+        2.04
+      ],
+      [
+        "std::__atomic_base<coro::memory::MemoryPool<64ul, 64ul>::FreeBlock*>::load",
+        1.22
+      ]
+    ],
+    "K5_syscall_io": [],
+    "K6_idle_wait": [],
+    "K7_compiler_fingerprint": []
+  },
+  "total_folded_samples": 9628628619,
+  "thresholds": {
+    "K1_concentration_top5": [
+      60.0,
+      85.0
+    ],
+    "K2_alloc": [
+      3.0,
+      10.0
+    ],
+    "K3_lock": [
+      5.0,
+      15.0
+    ],
+    "K4_atomic": [
+      2.0,
+      8.0
+    ],
+    "K5_syscall_io_server": [
+      15.0,
+      40.0
+    ],
+    "K5_syscall_io_lib": [
+      5.0,
+      20.0
+    ],
+    "K6_idle_wait": [
+      5.0,
+      20.0
+    ],
+    "K7_compiler_fingerprint": [
+      1.0,
+      5.0
+    ],
+    "K9_stack_depth_p90": [
+      15.0,
+      30.0
+    ],
+    "K10_reproduction": [
+      10.0,
+      30.0
+    ]
+  }
+}

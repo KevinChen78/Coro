@@ -1,0 +1,2014 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="598" onload="init(evt)" viewBox="0 0 1200 598" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="598.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >coro memory_bench (task-clock:u)</text>
+<text id="details" x="10.00" y="581" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="581" > </text>
+<g id="frames">
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::~lock_guard (1,001,001 samples, 0.01%)</title><rect x="1184.4" y="453" width="0.1" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1187.36" y="463.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_unlock (1,001,001 samples, 0.01%)</title><rect x="102.0" y="357" width="0.1" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="105.01" y="367.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;bool&gt;::operator bool (3,003,003 samples, 0.03%)</title><rect x="98.3" y="389" width="0.4" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="101.33" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Construct&lt;int, int&gt; (3,003,003 samples, 0.03%)</title><rect x="256.5" y="293" width="0.3" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="259.45" y="303.5" ></text>
+</g>
+<g >
+<title>malloc@plt (14,014,014 samples, 0.15%)</title><rect x="639.7" y="389" width="1.7" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="642.68" y="399.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::~unique_ptr (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="277" width="5.3" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1103.69" y="287.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;double&gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="357" width="0.1" height="15.0" fill="rgb(223,83,20)" rx="2" ry="2" />
+<text  x="1009.60" y="367.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.33] (2,002,002 samples, 0.02%)</title><rect x="97.2" y="469" width="0.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="100.22" y="479.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::function&lt;void  (7,007,007 samples, 0.07%)</title><rect x="1082.7" y="389" width="0.8" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1085.66" y="399.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="97.3" y="373" width="0.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.34" y="383.5" ></text>
+</g>
+<g >
+<title>void std::allocator_traits&lt;std::allocator&lt;void*&gt; &gt;::construct&lt;void*, void*&gt; (35,035,035 samples, 0.36%)</title><rect x="948.0" y="373" width="4.3" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="950.96" y="383.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::compare_exchange_weak (314,314,314 samples, 3.26%)</title><rect x="888.0" y="373" width="38.5" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="890.98" y="383.5" >std..</text>
+</g>
+<g >
+<title>std::_Vector_base&lt;void*, std::allocator&lt;void*&gt; &gt;::_M_allocate (89,089,089 samples, 0.93%)</title><rect x="952.3" y="373" width="10.9" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="955.26" y="383.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (205,205,205 samples, 2.13%)</title><rect x="261.2" y="293" width="25.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="264.24" y="303.5" >[..</text>
+</g>
+<g >
+<title>[libc.so.6] (2,002,002 samples, 0.02%)</title><rect x="1099.5" y="37" width="0.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1102.47" y="47.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="325" width="0.1" height="15.0" fill="rgb(212,33,8)" rx="2" ry="2" />
+<text  x="1103.57" y="335.5" ></text>
+</g>
+<g >
+<title>__default_morecore (1,001,001 samples, 0.01%)</title><rect x="847.1" y="341" width="0.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="850.13" y="351.5" ></text>
+</g>
+<g >
+<title>std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="181" width="2.3" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1087.01" y="191.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::load (117,117,117 samples, 1.22%)</title><rect x="858.2" y="389" width="14.3" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="861.17" y="399.5" ></text>
+</g>
+<g >
+<title>malloc (39,039,039 samples, 0.41%)</title><rect x="1184.5" y="517" width="4.8" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1187.48" y="527.5" ></text>
+</g>
+<g >
+<title>void std::destroy_at&lt;coro::Task&lt;int&gt; &gt; (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="389" width="0.2" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="1186.74" y="399.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::__uniq_ptr_impl (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="309" width="0.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1085.17" y="319.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_coroutine_creation (2,212,212,210 samples, 22.98%)</title><rect x="105.1" y="437" width="271.1" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="108.07" y="447.5" >benchmark&lt;benchmark_coroutine_creation</text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (202,202,202 samples, 2.10%)</title><rect x="1057.1" y="325" width="24.8" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1060.14" y="335.5" >v..</text>
+</g>
+<g >
+<title>std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="341" width="0.2" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1085.54" y="351.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.33] (1,001,001 samples, 0.01%)</title><rect x="97.3" y="389" width="0.2" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="100.34" y="399.5" ></text>
+</g>
+<g >
+<title>void std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::construct&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="373" width="0.3" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text  x="1085.17" y="383.5" ></text>
+</g>
+<g >
+<title>std::queue&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt; &gt;::~queue (44,044,044 samples, 0.46%)</title><rect x="1100.6" y="421" width="5.4" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="1103.57" y="431.5" ></text>
+</g>
+<g >
+<title>void std::destroy_at&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="293" width="5.3" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="1103.69" y="303.5" ></text>
+</g>
+<g >
+<title>std::operator- (7,007,007 samples, 0.07%)</title><rect x="104.2" y="357" width="0.9" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="107.21" y="367.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::clear (211,211,211 samples, 2.19%)</title><rect x="1056.0" y="405" width="25.9" height="15.0" fill="rgb(252,217,51)" rx="2" ry="2" />
+<text  x="1059.04" y="415.5" >s..</text>
+</g>
+<g >
+<title>operator new (3,003,003 samples, 0.03%)</title><rect x="1189.3" y="517" width="0.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1192.26" y="527.5" ></text>
+</g>
+<g >
+<title>std::queue&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt; &gt;::empty (3,003,003 samples, 0.03%)</title><rect x="1020.7" y="389" width="0.4" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1023.71" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*&gt; (211,211,211 samples, 2.19%)</title><rect x="1056.0" y="357" width="25.9" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="1059.04" y="367.5" >v..</text>
+</g>
+<g >
+<title>[libc.so.6] (39,039,039 samples, 0.41%)</title><rect x="1184.5" y="501" width="4.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1187.48" y="511.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (168,168,168 samples, 1.75%)</title><rect x="1060.5" y="245" width="20.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1063.46" y="255.5" ></text>
+</g>
+<g >
+<title>std::optional&lt;int&gt;::value (37,037,037 samples, 0.38%)</title><rect x="234.2" y="373" width="4.6" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="237.25" y="383.5" ></text>
+</g>
+<g >
+<title>malloc (179,179,179 samples, 1.86%)</title><rect x="1028.3" y="373" width="22.0" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1031.32" y="383.5" >m..</text>
+</g>
+<g >
+<title>std::function&lt;void  (113,113,113 samples, 1.17%)</title><rect x="1086.3" y="277" width="13.9" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1089.34" y="287.5" ></text>
+</g>
+<g >
+<title>free@plt (3,003,003 samples, 0.03%)</title><rect x="926.5" y="405" width="0.4" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="929.50" y="415.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,363,363,362 samples, 14.16%)</title><rect x="472.6" y="373" width="167.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="475.60" y="383.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (77,077,077 samples, 0.80%)</title><rect x="1090.8" y="261" width="9.4" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1093.76" y="271.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;TestObject, std::function&lt;void  (27,027,027 samples, 0.28%)</title><rect x="1021.7" y="357" width="3.3" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="1024.69" y="367.5" ></text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_deallocate_node (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="341" width="0.3" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1024.45" y="351.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (21,021,021 samples, 0.22%)</title><rect x="222.6" y="341" width="2.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="225.59" y="351.5" ></text>
+</g>
+<g >
+<title>benchmark_memory_pool (2,164,164,162 samples, 22.48%)</title><rect x="376.2" y="421" width="265.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="379.18" y="431.5" >benchmark_memory_pool</text>
+</g>
+<g >
+<title>std::_Vector_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::~_Vector_base (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="389" width="0.2" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="1085.54" y="399.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_pop_front_aux (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="357" width="0.3" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1024.45" y="367.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_destroy_data (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="389" width="5.3" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1103.69" y="399.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;double&gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="373" width="0.1" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="1009.60" y="383.5" ></text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::~Task (702,702,702 samples, 7.30%)</title><rect x="290.1" y="309" width="86.1" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="293.06" y="319.5" >coro::Task..</text>
+</g>
+<g >
+<title>std::_Head_base&lt;0ul, TestObject*, false&gt;::_Head_base&lt;TestObject*&amp;&gt; (23,023,023 samples, 0.24%)</title><rect x="1021.7" y="309" width="2.8" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1024.69" y="319.5" ></text>
+</g>
+<g >
+<title>std::mutex::lock (2,002,002 samples, 0.02%)</title><rect x="1184.1" y="437" width="0.3" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1187.11" y="447.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::~deque (44,044,044 samples, 0.46%)</title><rect x="1100.6" y="405" width="5.4" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="1103.57" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Function_base::_Base_manager&lt;coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (4,004,004 samples, 0.04%)</title><rect x="1085.8" y="133" width="0.5" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1088.85" y="143.5" ></text>
+</g>
+<g >
+<title>std::tuple&lt;TestObject*, std::default_delete&lt;TestObject&gt; &gt;::tuple (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="69" width="0.1" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="1101.98" y="79.5" ></text>
+</g>
+<g >
+<title>coro::detail::TaskPromiseBase&lt;int&gt;::~TaskPromiseBase (30,030,030 samples, 0.31%)</title><rect x="371.0" y="245" width="3.7" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="374.03" y="255.5" ></text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="421" width="0.4" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1192.63" y="431.5" ></text>
+</g>
+<g >
+<title>cfree (1,174,174,173 samples, 12.19%)</title><rect x="659.7" y="405" width="143.9" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="662.68" y="415.5" >cfree</text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::__uniq_ptr_impl (46,046,046 samples, 0.48%)</title><rect x="1050.4" y="357" width="5.6" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1053.40" y="367.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;unsigned long&gt;::load (196,196,196 samples, 2.04%)</title><rect x="1109.3" y="389" width="24.0" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="1112.28" y="399.5" >s..</text>
+</g>
+<g >
+<title>cfree (354,354,354 samples, 3.68%)</title><rect x="963.2" y="309" width="43.4" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="966.18" y="319.5" >cfree</text>
+</g>
+<g >
+<title>[libc.so.6] (373,373,373 samples, 3.88%)</title><rect x="308.2" y="261" width="45.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="311.22" y="271.5" >[lib..</text>
+</g>
+<g >
+<title>void std::allocator_traits&lt;std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::construct&lt;coro::Task&lt;int&gt;, coro::Task&lt;int&gt; &gt; (3,003,003 samples, 0.03%)</title><rect x="258.8" y="373" width="0.4" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="261.78" y="383.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::function&lt;void  (27,027,027 samples, 0.28%)</title><rect x="1021.7" y="389" width="3.3" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1024.69" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt;*, coro::Task&lt;int&gt; &gt; (732,732,732 samples, 7.61%)</title><rect x="286.4" y="389" width="89.8" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="289.38" y="399.5" >void std::..</text>
+</g>
+<g >
+<title>std::mutex::lock (31,031,031 samples, 0.32%)</title><rect x="1014.6" y="373" width="3.8" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1017.58" y="383.5" ></text>
+</g>
+<g >
+<title>:1164234 (710,710,710 samples, 7.38%)</title><rect x="10.0" y="533" width="87.1" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="13.00" y="543.5" >:1164234</text>
+</g>
+<g >
+<title>benchmark_channel (23,023,023 samples, 0.24%)</title><rect x="99.2" y="357" width="2.8" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="102.18" y="367.5" ></text>
+</g>
+<g >
+<title>void std::vector&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::_M_realloc_insert&lt;coro::Task&lt;int&gt; &gt; (17,017,017 samples, 0.18%)</title><rect x="259.2" y="373" width="2.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="262.15" y="383.5" ></text>
+</g>
+<g >
+<title>benchmark_channel (62,062,062 samples, 0.64%)</title><rect x="97.5" y="453" width="7.6" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="100.47" y="463.5" ></text>
+</g>
+<g >
+<title>decltype  (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="357" width="0.3" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="1085.17" y="367.5" ></text>
+</g>
+<g >
+<title>brk (1,001,001 samples, 0.01%)</title><rect x="847.1" y="309" width="0.1" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="850.13" y="319.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock@plt (1,001,001 samples, 0.01%)</title><rect x="1097.4" y="149" width="0.1" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="1100.38" y="159.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::unique_ptr&lt;std::default_delete&lt;TestObject&gt;, void&gt; (46,046,046 samples, 0.48%)</title><rect x="1050.4" y="389" width="5.6" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="1053.40" y="399.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_memory_pool (2,002,002 samples, 0.02%)</title><rect x="1183.9" y="501" width="0.2" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="1186.87" y="511.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;std::__n4861::noop_coroutine_promise&gt;::__frame::__dummy_resume_destroy (16,016,016 samples, 0.17%)</title><rect x="256.8" y="373" width="2.0" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="259.82" y="383.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::push_back (20,020,020 samples, 0.21%)</title><rect x="258.8" y="405" width="2.4" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="261.78" y="415.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::push_back (13,013,013 samples, 0.14%)</title><rect x="1098.1" y="181" width="1.6" height="15.0" fill="rgb(227,102,24)" rx="2" ry="2" />
+<text  x="1101.12" y="191.5" ></text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (32,032,032 samples, 0.33%)</title><rect x="1093.6" y="165" width="3.9" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1096.58" y="175.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="309" width="0.3" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1024.45" y="319.5" ></text>
+</g>
+<g >
+<title>malloc (3,003,003 samples, 0.03%)</title><rect x="1189.3" y="501" width="0.3" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1192.26" y="511.5" ></text>
+</g>
+<g >
+<title>benchmark_memory_pool (5,152,152,147 samples, 53.51%)</title><rect x="376.2" y="453" width="631.4" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="379.18" y="463.5" >benchmark_memory_pool</text>
+</g>
+<g >
+<title>operator new (27,027,027 samples, 0.28%)</title><rect x="843.9" y="389" width="3.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="846.94" y="399.5" ></text>
+</g>
+<g >
+<title>std::locale::_Impl::_Impl (1,001,001 samples, 0.01%)</title><rect x="97.3" y="405" width="0.2" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="100.34" y="415.5" ></text>
+</g>
+<g >
+<title>simple_task (145,145,145 samples, 1.51%)</title><rect x="356.9" y="277" width="17.8" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="359.92" y="287.5" ></text>
+</g>
+<g >
+<title>std::ios_base_library_init (1,001,001 samples, 0.01%)</title><rect x="97.3" y="453" width="0.2" height="15.0" fill="rgb(235,138,33)" rx="2" ry="2" />
+<text  x="100.34" y="463.5" ></text>
+</g>
+<g >
+<title>void std::destroy_at&lt;coro::Task&lt;int&gt; &gt; (702,702,702 samples, 7.30%)</title><rect x="290.1" y="325" width="86.1" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="293.06" y="335.5" >void std::..</text>
+</g>
+<g >
+<title>coro::WorkStealQueue&lt;unsigned long&gt;::resize (298,298,298 samples, 3.10%)</title><rect x="1134.2" y="389" width="36.5" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="1137.18" y="399.5" >cor..</text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt;*, coro::Task&lt;int&gt; &gt; (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="453" width="0.2" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1186.74" y="463.5" ></text>
+</g>
+<g >
+<title>std::__exception_ptr::exception_ptr::operator bool (2,002,002 samples, 0.02%)</title><rect x="234.0" y="357" width="0.2" height="15.0" fill="rgb(226,100,23)" rx="2" ry="2" />
+<text  x="237.00" y="367.5" ></text>
+</g>
+<g >
+<title>benchmark_coroutine_creation (2,212,212,210 samples, 22.98%)</title><rect x="105.1" y="453" width="271.1" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="108.07" y="463.5" >benchmark_coroutine_creation</text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_erase_at_end (211,211,211 samples, 2.19%)</title><rect x="1056.0" y="389" width="25.9" height="15.0" fill="rgb(206,8,2)" rx="2" ry="2" />
+<text  x="1059.04" y="399.5" >s..</text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;&amp; std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::emplace_back&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (13,013,013 samples, 0.14%)</title><rect x="1098.1" y="165" width="1.6" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text  x="1101.12" y="175.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_unlock (3,003,003 samples, 0.03%)</title><rect x="1018.4" y="357" width="0.3" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="1021.38" y="367.5" ></text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::~_Deque_base (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="373" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1103.57" y="383.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="97.1" y="453" width="0.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="463.5" ></text>
+</g>
+<g >
+<title>operator (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="485" width="0.2" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1186.74" y="495.5" ></text>
+</g>
+<g >
+<title>std::__detail::_MakeUniq&lt;TestObject&gt;::__single_object std::make_unique&lt;TestObject&gt; (41,041,041 samples, 0.43%)</title><rect x="1009.3" y="389" width="5.0" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="1012.30" y="399.5" ></text>
+</g>
+<g >
+<title>benchmark_object_pool (22,022,022 samples, 0.23%)</title><rect x="1015.7" y="357" width="2.7" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1018.68" y="367.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::~lock_guard (5,005,005 samples, 0.05%)</title><rect x="1097.5" y="197" width="0.6" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1100.50" y="207.5" ></text>
+</g>
+<g >
+<title>std::_Function_base::~_Function_base (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="165" width="2.3" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="1087.01" y="175.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (354,354,354 samples, 3.68%)</title><rect x="963.2" y="293" width="43.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="966.18" y="303.5" >[lib..</text>
+</g>
+<g >
+<title>pthread_mutex_unlock (1,001,001 samples, 0.01%)</title><rect x="1184.4" y="405" width="0.1" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1187.36" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;1ul, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="197" width="2.3" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1087.01" y="207.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::promise (16,016,016 samples, 0.17%)</title><rect x="241.0" y="389" width="2.0" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="243.99" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (136,136,136 samples, 1.41%)</title><rect x="1083.9" y="325" width="16.7" height="15.0" fill="rgb(210,27,6)" rx="2" ry="2" />
+<text  x="1086.89" y="335.5" ></text>
+</g>
+<g >
+<title>std::function&lt;void  (4,004,004 samples, 0.04%)</title><rect x="1024.5" y="277" width="0.5" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1027.51" y="287.5" ></text>
+</g>
+<g >
+<title>operator delete (24,024,024 samples, 0.25%)</title><rect x="354.0" y="277" width="2.9" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="356.98" y="287.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::lock_guard (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="453" width="0.4" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1192.63" y="463.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (22,022,022 samples, 0.23%)</title><rect x="1015.7" y="341" width="2.7" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1018.68" y="351.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (4,004,004 samples, 0.04%)</title><rect x="1049.7" y="341" width="0.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1052.66" y="351.5" ></text>
+</g>
+<g >
+<title>operator delete (4,004,004 samples, 0.04%)</title><rect x="1105.5" y="245" width="0.5" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1108.48" y="255.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::~lock_guard (19,019,019 samples, 0.20%)</title><rect x="1018.4" y="389" width="2.3" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1021.38" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (139,139,139 samples, 1.45%)</title><rect x="1083.5" y="373" width="17.1" height="15.0" fill="rgb(210,27,6)" rx="2" ry="2" />
+<text  x="1086.52" y="383.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;1ul, std::function&lt;void  (4,004,004 samples, 0.04%)</title><rect x="1024.5" y="309" width="0.5" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1027.51" y="319.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::__uniq_ptr_impl (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="85" width="0.1" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1101.98" y="95.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::pop_front (5,005,005 samples, 0.05%)</title><rect x="1021.1" y="373" width="0.6" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="1024.08" y="383.5" ></text>
+</g>
+<g >
+<title>std::mutex::lock (37,037,037 samples, 0.38%)</title><rect x="1093.0" y="181" width="4.5" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1095.96" y="191.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (583,583,583 samples, 6.06%)</title><rect x="153.7" y="357" width="71.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="156.65" y="367.5" >[libc.so..</text>
+</g>
+<g >
+<title>void std::__invoke_impl&lt;void, coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="485" width="0.4" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="1192.63" y="495.5" ></text>
+</g>
+<g >
+<title>cfree (191,191,191 samples, 1.99%)</title><rect x="1057.6" y="261" width="23.5" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1060.63" y="271.5" >c..</text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::destroy (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="357" width="0.2" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="1186.74" y="367.5" ></text>
+</g>
+<g >
+<title>malloc (1,001,001 samples, 0.01%)</title><rect x="97.2" y="453" width="0.1" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="100.22" y="463.5" ></text>
+</g>
+<g >
+<title>std::_Head_base&lt;1ul, std::function&lt;void  (4,004,004 samples, 0.04%)</title><rect x="1024.5" y="293" width="0.5" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1027.51" y="303.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::destroy (689,689,689 samples, 7.16%)</title><rect x="290.2" y="293" width="84.5" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="293.19" y="303.5" >std::__n4..</text>
+</g>
+<g >
+<title>[libc.so.6] (25,025,025 samples, 0.26%)</title><rect x="844.2" y="357" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="847.18" y="367.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;void*&gt;::allocate (89,089,089 samples, 0.93%)</title><rect x="952.3" y="325" width="10.9" height="15.0" fill="rgb(225,96,23)" rx="2" ry="2" />
+<text  x="955.26" y="335.5" ></text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::result (227,227,227 samples, 2.36%)</title><rect x="230.9" y="405" width="27.9" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="233.94" y="415.5" >c..</text>
+</g>
+<g >
+<title>benchmark_coroutine_creation (984,984,984 samples, 10.23%)</title><rect x="105.1" y="421" width="120.7" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="108.07" y="431.5" >benchmark_corou..</text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (146,146,146 samples, 1.52%)</title><rect x="1082.7" y="405" width="17.9" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="1085.66" y="415.5" ></text>
+</g>
+<g >
+<title>free@plt (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="325" width="0.1" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="1009.60" y="335.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_channel (62,062,062 samples, 0.64%)</title><rect x="97.5" y="437" width="7.6" height="15.0" fill="rgb(221,75,17)" rx="2" ry="2" />
+<text  x="100.47" y="447.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_work_stealing (634,634,634 samples, 6.59%)</title><rect x="1106.0" y="437" width="77.7" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1108.97" y="447.5" >benchmar..</text>
+</g>
+<g >
+<title>std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::allocate (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="101" width="0.6" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1102.10" y="111.5" ></text>
+</g>
+<g >
+<title>malloc (26,026,026 samples, 0.27%)</title><rect x="844.1" y="373" width="3.1" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="847.06" y="383.5" ></text>
+</g>
+<g >
+<title>void std::destroy_at&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (136,136,136 samples, 1.41%)</title><rect x="1083.9" y="309" width="16.7" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1086.89" y="319.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;coro::Task&lt;int&gt; &gt;::deallocate (205,205,205 samples, 2.13%)</title><rect x="261.2" y="341" width="25.2" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="264.24" y="351.5" >s..</text>
+</g>
+<g >
+<title>std::__new_allocator&lt;double&gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="341" width="0.1" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="1009.60" y="351.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;double, std::allocator&lt;double&gt; &gt;::_M_deallocate (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="389" width="0.1" height="15.0" fill="rgb(240,162,38)" rx="2" ry="2" />
+<text  x="1009.60" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (354,354,354 samples, 3.68%)</title><rect x="963.2" y="277" width="43.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="966.18" y="287.5" >[lib..</text>
+</g>
+<g >
+<title>__default_morecore (1,001,001 samples, 0.01%)</title><rect x="1050.2" y="341" width="0.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1053.15" y="351.5" ></text>
+</g>
+<g >
+<title>std::queue&lt;int, std::deque&lt;int, std::allocator&lt;int&gt; &gt; &gt;::size (7,007,007 samples, 0.07%)</title><rect x="104.2" y="389" width="0.9" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="107.21" y="399.5" ></text>
+</g>
+<g >
+<title>operator new (923,923,923 samples, 9.60%)</title><rect x="112.6" y="389" width="113.2" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="115.56" y="399.5" >operator new</text>
+</g>
+<g >
+<title>std::function&lt;void  (2,002,002 samples, 0.02%)</title><rect x="1014.3" y="389" width="0.3" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1017.33" y="399.5" ></text>
+</g>
+<g >
+<title>simple_task (984,984,984 samples, 10.23%)</title><rect x="105.1" y="405" width="120.7" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="108.07" y="415.5" >simple_task</text>
+</g>
+<g >
+<title>std::locale::locale (1,001,001 samples, 0.01%)</title><rect x="97.3" y="437" width="0.2" height="15.0" fill="rgb(214,44,10)" rx="2" ry="2" />
+<text  x="100.34" y="447.5" ></text>
+</g>
+<g >
+<title>decltype  (35,035,035 samples, 0.36%)</title><rect x="948.0" y="357" width="4.3" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="950.96" y="367.5" ></text>
+</g>
+<g >
+<title>__sbrk (1,001,001 samples, 0.01%)</title><rect x="639.6" y="341" width="0.1" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="642.56" y="351.5" ></text>
+</g>
+<g >
+<title>coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (3,003,003 samples, 0.03%)</title><rect x="1184.1" y="469" width="0.4" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="1187.11" y="479.5" ></text>
+</g>
+<g >
+<title>std::tuple&lt;TestObject*, std::default_delete&lt;TestObject&gt; &gt;::tuple (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="293" width="0.3" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="1085.17" y="303.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::~vector (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="405" width="0.2" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="1085.54" y="415.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::allocate (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="85" width="0.6" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="1102.10" y="95.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (21,021,021 samples, 0.22%)</title><rect x="99.4" y="341" width="2.6" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="102.43" y="351.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::empty (3,003,003 samples, 0.03%)</title><rect x="1020.7" y="373" width="0.4" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="1023.71" y="383.5" ></text>
+</g>
+<g >
+<title>std::mutex::unlock (1,001,001 samples, 0.01%)</title><rect x="1184.4" y="437" width="0.1" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="1187.36" y="447.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (3,003,003 samples, 0.03%)</title><rect x="97.1" y="485" width="0.4" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="495.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;int, std::allocator&lt;int&gt; &gt;::size (7,007,007 samples, 0.07%)</title><rect x="104.2" y="373" width="0.9" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="107.21" y="383.5" ></text>
+</g>
+<g >
+<title>cfree (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="309" width="0.2" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1085.54" y="319.5" ></text>
+</g>
+<g >
+<title>coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (142,142,142 samples, 1.48%)</title><rect x="1007.6" y="405" width="17.4" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="1010.58" y="415.5" ></text>
+</g>
+<g >
+<title>std::enable_if&lt;is_invocable_r_v&lt;void, coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (64,064,064 samples, 0.67%)</title><rect x="1092.4" y="245" width="7.8" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1095.35" y="255.5" ></text>
+</g>
+<g >
+<title>operator (3,003,003 samples, 0.03%)</title><rect x="1184.1" y="485" width="0.4" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1187.11" y="495.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,003,003 samples, 0.03%)</title><rect x="1105.1" y="213" width="0.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1108.11" y="223.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="405" width="0.4" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1192.63" y="415.5" ></text>
+</g>
+<g >
+<title>operator new (1,001,001 samples, 0.01%)</title><rect x="1184.0" y="453" width="0.1" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1186.99" y="463.5" ></text>
+</g>
+<g >
+<title>void std::_Optional_payload_base&lt;int&gt;::_M_construct&lt;int&gt; (4,004,004 samples, 0.04%)</title><rect x="256.3" y="309" width="0.5" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="259.33" y="319.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;void*&gt;::deallocate (354,354,354 samples, 3.68%)</title><rect x="963.2" y="325" width="43.4" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="966.18" y="335.5" >std:..</text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;&amp; std::vector&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::emplace_back&lt;coro::Task&lt;int&gt; &gt; (20,020,020 samples, 0.21%)</title><rect x="258.8" y="389" width="2.4" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="261.78" y="399.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::~vector (937,937,937 samples, 9.74%)</title><rect x="261.2" y="405" width="115.0" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="264.24" y="415.5" >std::vector&lt;co..</text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::function&lt;void  (3,003,003 samples, 0.03%)</title><rect x="1100.2" y="277" width="0.4" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1103.20" y="287.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;void&gt; coro::detail::TaskPromiseBase&lt;int&gt;::FinalAwaiter::await_suspend&lt;coro::Task&lt;int&gt;::Promise&gt; (1,001,001 samples, 0.01%)</title><rect x="256.2" y="357" width="0.1" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="259.21" y="367.5" ></text>
+</g>
+<g >
+<title>coro::Channel&lt;int&gt;::try_send (55,055,055 samples, 0.57%)</title><rect x="98.3" y="405" width="6.8" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="101.33" y="415.5" ></text>
+</g>
+<g >
+<title>main (8,863,863,855 samples, 92.06%)</title><rect x="97.5" y="469" width="1086.2" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="100.47" y="479.5" >main</text>
+</g>
+<g >
+<title>benchmark_object_pool (802,802,802 samples, 8.34%)</title><rect x="1007.6" y="453" width="98.4" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1010.58" y="463.5" >benchmark_o..</text>
+</g>
+<g >
+<title>std::operator== (3,003,003 samples, 0.03%)</title><rect x="1020.7" y="357" width="0.4" height="15.0" fill="rgb(229,110,26)" rx="2" ry="2" />
+<text  x="1023.71" y="367.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="309" width="0.1" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1103.57" y="319.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy_aux&lt;false&gt;::__destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*&gt; (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="325" width="5.3" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="1103.69" y="335.5" ></text>
+</g>
+<g >
+<title>simple_task (84,084,084 samples, 0.87%)</title><rect x="246.5" y="373" width="10.3" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="249.52" y="383.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;1ul, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="213" width="2.3" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1087.01" y="223.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;void*, std::allocator&lt;void*&gt; &gt;::~vector (354,354,354 samples, 3.68%)</title><rect x="963.2" y="405" width="43.4" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="966.18" y="415.5" >std:..</text>
+</g>
+<g >
+<title>void coro::Task&lt;int&gt;::Promise::return_value&lt;int&gt; (4,004,004 samples, 0.04%)</title><rect x="256.3" y="357" width="0.5" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="259.33" y="367.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (3,003,003 samples, 0.03%)</title><rect x="97.1" y="501" width="0.4" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="511.5" ></text>
+</g>
+<g >
+<title>cfree (505,505,505 samples, 5.25%)</title><rect x="292.0" y="277" width="62.0" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="295.03" y="287.5" >cfree</text>
+</g>
+<g >
+<title>void*&amp; std::vector&lt;void*, std::allocator&lt;void*&gt; &gt;::emplace_back&lt;void*&gt; (151,151,151 samples, 1.57%)</title><rect x="933.7" y="389" width="18.6" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="936.73" y="399.5" ></text>
+</g>
+<g >
+<title>_start (8,863,863,855 samples, 92.06%)</title><rect x="97.5" y="517" width="1086.2" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="100.47" y="527.5" >_start</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="659.6" y="389" width="0.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="662.56" y="399.5" ></text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_allocate_node (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="133" width="0.6" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="1102.10" y="143.5" ></text>
+</g>
+<g >
+<title>cfree (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="277" width="0.1" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1103.57" y="287.5" ></text>
+</g>
+<g >
+<title>__sbrk (1,001,001 samples, 0.01%)</title><rect x="97.2" y="389" width="0.1" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="100.22" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (4,004,004 samples, 0.04%)</title><rect x="1007.1" y="405" width="0.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1010.09" y="415.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::compare_exchange_weak (89,089,089 samples, 0.93%)</title><rect x="847.2" y="389" width="11.0" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="850.25" y="399.5" ></text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_deallocate_node (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="341" width="0.1" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1103.57" y="351.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (8,863,863,855 samples, 92.06%)</title><rect x="97.5" y="485" width="1086.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="100.47" y="495.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>std::mutex::lock (27,027,027 samples, 0.28%)</title><rect x="98.7" y="373" width="3.3" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="101.69" y="383.5" ></text>
+</g>
+<g >
+<title>std::queue&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt; &gt;::push (13,013,013 samples, 0.14%)</title><rect x="1098.1" y="197" width="1.6" height="15.0" fill="rgb(242,171,40)" rx="2" ry="2" />
+<text  x="1101.12" y="207.5" ></text>
+</g>
+<g >
+<title>cfree (38,038,038 samples, 0.40%)</title><rect x="1100.8" y="245" width="4.7" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1103.82" y="255.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (89,089,089 samples, 0.93%)</title><rect x="952.3" y="261" width="10.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="955.26" y="271.5" ></text>
+</g>
+<g >
+<title>malloc (39,039,039 samples, 0.41%)</title><rect x="1009.5" y="357" width="4.8" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1012.55" y="367.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;void*, std::allocator&lt;void*&gt; &gt;::~_Vector_base (354,354,354 samples, 3.68%)</title><rect x="963.2" y="389" width="43.4" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="966.18" y="399.5" >std:..</text>
+</g>
+<g >
+<title>coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::~ObjectPool (44,044,044 samples, 0.46%)</title><rect x="1100.6" y="437" width="5.4" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="1103.57" y="447.5" ></text>
+</g>
+<g >
+<title>decltype  (3,003,003 samples, 0.03%)</title><rect x="258.8" y="357" width="0.4" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="261.78" y="367.5" ></text>
+</g>
+<g >
+<title>coro::detail::TaskPromiseBase&lt;int&gt;::rethrow_if_exception (2,002,002 samples, 0.02%)</title><rect x="234.0" y="373" width="0.2" height="15.0" fill="rgb(233,133,31)" rx="2" ry="2" />
+<text  x="237.00" y="383.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::allocate (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="117" width="0.6" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="1102.10" y="127.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.33] (1,001,001 samples, 0.01%)</title><rect x="97.3" y="421" width="0.2" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="100.34" y="431.5" ></text>
+</g>
+<g >
+<title>operator new (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="69" width="0.6" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1102.10" y="79.5" ></text>
+</g>
+<g >
+<title>std::queue&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt; &gt;::pop (5,005,005 samples, 0.05%)</title><rect x="1021.1" y="389" width="0.6" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="1024.08" y="399.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_object_pool (3,003,003 samples, 0.03%)</title><rect x="1184.1" y="501" width="0.4" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="1187.11" y="511.5" ></text>
+</g>
+<g >
+<title>benchmark_channel (17,017,017 samples, 0.18%)</title><rect x="102.1" y="357" width="2.1" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="105.13" y="367.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::~unique_ptr (4,004,004 samples, 0.04%)</title><rect x="1099.7" y="197" width="0.5" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1102.71" y="207.5" ></text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::Task (3,003,003 samples, 0.03%)</title><rect x="258.8" y="341" width="0.4" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="261.78" y="351.5" ></text>
+</g>
+<g >
+<title>cfree (6,006,006 samples, 0.06%)</title><rect x="1006.8" y="421" width="0.8" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1009.85" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (34,034,034 samples, 0.35%)</title><rect x="1101.3" y="229" width="4.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1104.31" y="239.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock@plt (1,001,001 samples, 0.01%)</title><rect x="104.1" y="341" width="0.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="107.09" y="351.5" ></text>
+</g>
+<g >
+<title>operator new (1,001,001 samples, 0.01%)</title><rect x="1183.9" y="469" width="0.1" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1186.87" y="479.5" ></text>
+</g>
+<g >
+<title>coro::memory::MemoryPool&lt;64ul, 64ul&gt;::deallocate (436,436,436 samples, 4.53%)</title><rect x="873.0" y="405" width="53.5" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="876.01" y="415.5" >coro:..</text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_destroy_nodes (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="357" width="0.1" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="1103.57" y="367.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt; &gt; (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="405" width="0.2" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1186.74" y="415.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy_aux&lt;false&gt;::__destroy&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (139,139,139 samples, 1.45%)</title><rect x="1083.5" y="341" width="17.1" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="1086.52" y="351.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, TestObject*, std::function&lt;void  (27,027,027 samples, 0.28%)</title><rect x="1021.7" y="325" width="3.3" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="1024.69" y="335.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_data&lt;TestObject, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="277" width="2.3" height="15.0" fill="rgb(247,197,47)" rx="2" ry="2" />
+<text  x="1087.01" y="287.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::_M_deallocate (205,205,205 samples, 2.13%)</title><rect x="261.2" y="373" width="25.2" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="264.24" y="383.5" >s..</text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::Promise::Promise (8,008,008 samples, 0.08%)</title><rect x="111.6" y="389" width="1.0" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="114.57" y="399.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, TestObject*, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="229" width="2.3" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="1087.01" y="239.5" ></text>
+</g>
+<g >
+<title>operator (1,227,227,226 samples, 12.75%)</title><rect x="225.8" y="421" width="150.4" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="228.78" y="431.5" >operator</text>
+</g>
+<g >
+<title>pthread_mutex_unlock (16,016,016 samples, 0.17%)</title><rect x="1018.7" y="341" width="2.0" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1021.75" y="351.5" ></text>
+</g>
+<g >
+<title>coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (64,064,064 samples, 0.67%)</title><rect x="1092.4" y="213" width="7.8" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="1095.35" y="223.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock (22,022,022 samples, 0.23%)</title><rect x="1087.7" y="261" width="2.7" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1090.69" y="271.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt; &gt; (702,702,702 samples, 7.30%)</title><rect x="290.1" y="341" width="86.1" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="293.06" y="351.5" >void std::..</text>
+</g>
+<g >
+<title>std::__uniq_ptr_data&lt;TestObject, std::function&lt;void  (27,027,027 samples, 0.28%)</title><rect x="1021.7" y="373" width="3.3" height="15.0" fill="rgb(247,197,47)" rx="2" ry="2" />
+<text  x="1024.69" y="383.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock@plt (3,003,003 samples, 0.03%)</title><rect x="1090.4" y="261" width="0.4" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1093.39" y="271.5" ></text>
+</g>
+<g >
+<title>malloc (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="53" width="0.6" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1102.10" y="63.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;void*&gt;::deallocate (354,354,354 samples, 3.68%)</title><rect x="963.2" y="341" width="43.4" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="966.18" y="351.5" >std:..</text>
+</g>
+<g >
+<title>std::mutex::unlock (18,018,018 samples, 0.19%)</title><rect x="102.0" y="373" width="2.2" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="105.01" y="383.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::unique_ptr (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="117" width="0.1" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1101.98" y="127.5" ></text>
+</g>
+<g >
+<title>__sbrk (1,001,001 samples, 0.01%)</title><rect x="1050.2" y="325" width="0.1" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="1053.15" y="335.5" ></text>
+</g>
+<g >
+<title>malloc (845,845,845 samples, 8.78%)</title><rect x="121.5" y="373" width="103.7" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="124.51" y="383.5" >malloc</text>
+</g>
+<g >
+<title>coro::WorkStealQueue&lt;unsigned long&gt;::pop (198,198,198 samples, 2.06%)</title><rect x="1109.3" y="405" width="24.3" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="1112.28" y="415.5" >c..</text>
+</g>
+<g >
+<title>benchmark_object_pool (16,016,016 samples, 0.17%)</title><rect x="1018.7" y="357" width="2.0" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1021.75" y="367.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_impl&lt;TestObject, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="261" width="2.3" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="1087.01" y="271.5" ></text>
+</g>
+<g >
+<title>operator delete (7,007,007 samples, 0.07%)</title><rect x="1081.1" y="261" width="0.8" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1084.07" y="271.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;void*, std::allocator&lt;void*&gt; &gt;::_M_deallocate (354,354,354 samples, 3.68%)</title><rect x="963.2" y="373" width="43.4" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="966.18" y="383.5" >std:..</text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::~lock_guard (18,018,018 samples, 0.19%)</title><rect x="102.0" y="389" width="2.2" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="105.01" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,001,001 samples, 0.01%)</title><rect x="1014.2" y="325" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1017.21" y="335.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;unsigned long&gt;::__atomic_base (22,022,022 samples, 0.23%)</title><rect x="1168.0" y="357" width="2.7" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1171.04" y="367.5" ></text>
+</g>
+<g >
+<title>std::tuple&lt;TestObject*, std::function&lt;void  (19,019,019 samples, 0.20%)</title><rect x="1084.0" y="245" width="2.3" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="1087.01" y="255.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt;*&gt; (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="437" width="0.2" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="1186.74" y="447.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::operator bool (12,012,012 samples, 0.12%)</title><rect x="374.7" y="293" width="1.5" height="15.0" fill="rgb(246,188,45)" rx="2" ry="2" />
+<text  x="377.71" y="303.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::unique_ptr (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="341" width="0.3" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1085.17" y="351.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (2,002,002 samples, 0.02%)</title><rect x="1184.1" y="405" width="0.3" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1187.11" y="415.5" ></text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::Promise::result (39,039,039 samples, 0.41%)</title><rect x="234.0" y="389" width="4.8" height="15.0" fill="rgb(243,175,42)" rx="2" ry="2" />
+<text  x="237.00" y="399.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::load (117,117,117 samples, 1.22%)</title><rect x="858.2" y="373" width="14.3" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="861.17" y="383.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (69,069,069 samples, 0.72%)</title><rect x="631.1" y="357" width="8.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="634.10" y="367.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::lock_guard (2,002,002 samples, 0.02%)</title><rect x="1184.1" y="453" width="0.3" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1187.11" y="463.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_data&lt;TestObject, std::default_delete&lt;TestObject&gt;, true, true&gt;::__uniq_ptr_data (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="101" width="0.1" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="1101.98" y="111.5" ></text>
+</g>
+<g >
+<title>__default_morecore (1,001,001 samples, 0.01%)</title><rect x="97.2" y="405" width="0.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="100.22" y="415.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock (15,015,015 samples, 0.16%)</title><rect x="102.3" y="341" width="1.8" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="105.25" y="351.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_object_pool (758,758,758 samples, 7.88%)</title><rect x="1007.6" y="437" width="93.0" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="1010.58" y="447.5" >benchmark&lt;b..</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (3,003,003 samples, 0.03%)</title><rect x="97.1" y="517" width="0.4" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="527.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;void*&gt; &gt;::allocate (89,089,089 samples, 0.93%)</title><rect x="952.3" y="357" width="10.9" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="955.26" y="367.5" ></text>
+</g>
+<g >
+<title>malloc@plt (5,005,005 samples, 0.05%)</title><rect x="225.2" y="373" width="0.6" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="228.17" y="383.5" ></text>
+</g>
+<g >
+<title>operator (2,979,979,977 samples, 30.95%)</title><rect x="641.4" y="421" width="365.2" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="644.40" y="431.5" >operator</text>
+</g>
+<g >
+<title>operator (1,001,001 samples, 0.01%)</title><rect x="1184.0" y="485" width="0.1" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1186.99" y="495.5" ></text>
+</g>
+<g >
+<title>benchmark_memory_pool (1,001,001 samples, 0.01%)</title><rect x="1183.9" y="485" width="0.1" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1186.87" y="495.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy_aux&lt;false&gt;::__destroy&lt;coro::Task&lt;int&gt;*&gt; (732,732,732 samples, 7.61%)</title><rect x="286.4" y="357" width="89.8" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="289.38" y="367.5" >void std::..</text>
+</g>
+<g >
+<title>[libc.so.6] (22,022,022 samples, 0.23%)</title><rect x="1168.0" y="341" width="2.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1171.04" y="351.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::lock_guard (27,027,027 samples, 0.28%)</title><rect x="98.7" y="389" width="3.3" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="101.69" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="309" width="5.3" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1103.69" y="319.5" ></text>
+</g>
+<g >
+<title>coro::memory::MemoryPool&lt;64ul, 64ul&gt;::allocate (1,001,001 samples, 0.01%)</title><rect x="1184.0" y="469" width="0.1" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="1186.99" y="479.5" ></text>
+</g>
+<g >
+<title>malloc (89,089,089 samples, 0.93%)</title><rect x="952.3" y="293" width="10.9" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="955.26" y="303.5" ></text>
+</g>
+<g >
+<title>coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="469" width="0.4" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="1192.63" y="479.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;unsigned long&gt;::atomic (22,022,022 samples, 0.23%)</title><rect x="1168.0" y="373" width="2.7" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1171.04" y="383.5" ></text>
+</g>
+<g >
+<title>std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_destroy_data_aux (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="373" width="5.3" height="15.0" fill="rgb(241,166,39)" rx="2" ry="2" />
+<text  x="1103.69" y="383.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy_aux&lt;false&gt;::__destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*&gt; (211,211,211 samples, 2.19%)</title><rect x="1056.0" y="341" width="25.9" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="1059.04" y="351.5" >v..</text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::push_back (5,005,005 samples, 0.05%)</title><rect x="1081.9" y="405" width="0.6" height="15.0" fill="rgb(206,8,1)" rx="2" ry="2" />
+<text  x="1084.92" y="415.5" ></text>
+</g>
+<g >
+<title>std::mutex::lock (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="437" width="0.4" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1192.63" y="447.5" ></text>
+</g>
+<g >
+<title>std::mutex::unlock (19,019,019 samples, 0.20%)</title><rect x="1018.4" y="373" width="2.3" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="1021.38" y="383.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="261" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1103.57" y="271.5" ></text>
+</g>
+<g >
+<title>operator new (198,198,198 samples, 2.06%)</title><rect x="1026.1" y="389" width="24.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1029.11" y="399.5" >o..</text>
+</g>
+<g >
+<title>[libc.so.6] (128,128,128 samples, 1.33%)</title><rect x="1034.6" y="357" width="15.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1037.57" y="367.5" ></text>
+</g>
+<g >
+<title>std::tuple&lt;TestObject*, std::function&lt;void  (27,027,027 samples, 0.28%)</title><rect x="1021.7" y="341" width="3.3" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="1024.69" y="351.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;void*&gt;::allocate (89,089,089 samples, 0.93%)</title><rect x="952.3" y="341" width="10.9" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="955.26" y="351.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy_aux&lt;false&gt;::__destroy&lt;coro::Task&lt;int&gt;*&gt; (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="421" width="0.2" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="1186.74" y="431.5" ></text>
+</g>
+<g >
+<title>benchmark_object_pool (2,002,002 samples, 0.02%)</title><rect x="1184.1" y="421" width="0.3" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1187.11" y="431.5" ></text>
+</g>
+<g >
+<title>void std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::construct&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="149" width="0.1" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text  x="1101.98" y="159.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::lock_guard (31,031,031 samples, 0.32%)</title><rect x="1014.6" y="389" width="3.8" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1017.58" y="399.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;void*, std::allocator&lt;void*&gt; &gt;::_M_allocate (89,089,089 samples, 0.93%)</title><rect x="952.3" y="389" width="10.9" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="955.26" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="261" width="0.3" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1024.45" y="271.5" ></text>
+</g>
+<g >
+<title>coro::detail::TaskPromiseBase&lt;int&gt;::TaskPromiseBase (8,008,008 samples, 0.08%)</title><rect x="111.6" y="373" width="1.0" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="114.57" y="383.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (31,031,031 samples, 0.32%)</title><rect x="1093.6" y="149" width="3.8" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1096.58" y="159.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::function&lt;void  (136,136,136 samples, 1.41%)</title><rect x="1083.9" y="293" width="16.7" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1086.89" y="303.5" ></text>
+</g>
+<g >
+<title>std::__uniq_ptr_data&lt;TestObject, std::default_delete&lt;TestObject&gt;, true, true&gt;::__uniq_ptr_data (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="325" width="0.3" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="1085.17" y="335.5" ></text>
+</g>
+<g >
+<title>cfree (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="277" width="0.3" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1024.45" y="287.5" ></text>
+</g>
+<g >
+<title>malloc (1,939,939,938 samples, 20.15%)</title><rect x="401.9" y="389" width="237.8" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="404.94" y="399.5" >malloc</text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (139,139,139 samples, 1.45%)</title><rect x="1083.5" y="357" width="17.1" height="15.0" fill="rgb(210,27,6)" rx="2" ry="2" />
+<text  x="1086.52" y="367.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*, std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (211,211,211 samples, 2.19%)</title><rect x="1056.0" y="373" width="25.9" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="1059.04" y="383.5" >v..</text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::~Task (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="373" width="0.2" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1186.74" y="383.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::unique_ptr&lt;TestObject, std::function&lt;void  (139,139,139 samples, 1.45%)</title><rect x="1083.5" y="389" width="17.1" height="15.0" fill="rgb(246,193,46)" rx="2" ry="2" />
+<text  x="1086.52" y="399.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="293" width="0.1" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="1103.57" y="303.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::deallocate (205,205,205 samples, 2.13%)</title><rect x="261.2" y="357" width="25.2" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text  x="264.24" y="367.5" >s..</text>
+</g>
+<g >
+<title>std::__atomic_base&lt;bool&gt;::load (3,003,003 samples, 0.03%)</title><rect x="98.3" y="373" width="0.4" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="101.33" y="383.5" ></text>
+</g>
+<g >
+<title>benchmark_channel (7,007,007 samples, 0.07%)</title><rect x="97.5" y="421" width="0.8" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="100.47" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (847,847,847 samples, 8.81%)</title><rect x="699.7" y="389" width="103.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="702.67" y="399.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>benchmark_work_stealing (27,027,027 samples, 0.28%)</title><rect x="1106.0" y="421" width="3.3" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="1108.97" y="431.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;unsigned long&gt;::store (94,094,094 samples, 0.98%)</title><rect x="1156.5" y="373" width="11.5" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1159.51" y="383.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock@plt (1,001,001 samples, 0.01%)</title><rect x="1018.6" y="341" width="0.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1021.62" y="351.5" ></text>
+</g>
+<g >
+<title>operator delete (56,056,056 samples, 0.58%)</title><rect x="926.9" y="405" width="6.8" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="929.86" y="415.5" ></text>
+</g>
+<g >
+<title>coro::memory::MemoryPool&lt;64ul, 64ul&gt;::~MemoryPool (7,007,007 samples, 0.07%)</title><rect x="1006.7" y="437" width="0.9" height="15.0" fill="rgb(214,45,10)" rx="2" ry="2" />
+<text  x="1009.73" y="447.5" ></text>
+</g>
+<g >
+<title>void std::__invoke_impl&lt;void, coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (64,064,064 samples, 0.67%)</title><rect x="1092.4" y="229" width="7.8" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="1095.35" y="239.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (31,031,031 samples, 0.32%)</title><rect x="1010.5" y="341" width="3.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1013.53" y="351.5" ></text>
+</g>
+<g >
+<title>brk (1,001,001 samples, 0.01%)</title><rect x="639.6" y="325" width="0.1" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="642.56" y="335.5" ></text>
+</g>
+<g >
+<title>std::mutex::unlock (5,005,005 samples, 0.05%)</title><rect x="1097.5" y="181" width="0.6" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="1100.50" y="191.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::~vector (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="469" width="0.2" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1186.74" y="479.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::compare_exchange_weak (89,089,089 samples, 0.93%)</title><rect x="847.2" y="373" width="11.0" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="850.25" y="383.5" ></text>
+</g>
+<g >
+<title>std::default_delete&lt;TestObject&gt;::operator (42,042,042 samples, 0.44%)</title><rect x="1100.8" y="261" width="5.2" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="1103.82" y="271.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_deallocate (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="373" width="0.2" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1085.54" y="383.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="97.1" y="469" width="0.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="479.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, TestObject*, std::default_delete&lt;TestObject&gt; &gt;::_Tuple_impl (3,003,003 samples, 0.03%)</title><rect x="1082.2" y="277" width="0.3" height="15.0" fill="rgb(218,64,15)" rx="2" ry="2" />
+<text  x="1085.17" y="287.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;double, std::allocator&lt;double&gt; &gt;::~vector (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="421" width="0.1" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1009.60" y="431.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;unsigned long&gt;::store (2,002,002 samples, 0.02%)</title><rect x="1133.3" y="389" width="0.3" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1136.32" y="399.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="325" width="0.2" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="1085.54" y="335.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;coro::Task&lt;int&gt; &gt;::deallocate (205,205,205 samples, 2.13%)</title><rect x="261.2" y="325" width="25.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="264.24" y="335.5" >s..</text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_memory_pool (5,145,145,140 samples, 53.44%)</title><rect x="376.2" y="437" width="630.5" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="379.18" y="447.5" >benchmark&lt;benchmark_memory_pool</text>
+</g>
+<g >
+<title>operator (758,758,758 samples, 7.88%)</title><rect x="1007.6" y="421" width="93.0" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1010.58" y="431.5" >operator</text>
+</g>
+<g >
+<title>[libc.so.6] (37,037,037 samples, 0.38%)</title><rect x="281.8" y="261" width="4.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="284.85" y="271.5" ></text>
+</g>
+<g >
+<title>operator new (2,140,140,138 samples, 22.23%)</title><rect x="379.1" y="405" width="262.3" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="382.13" y="415.5" >operator new</text>
+</g>
+<g >
+<title>coro::memory::MemoryPool&lt;64ul, 64ul&gt;::deallocate (436,436,436 samples, 4.53%)</title><rect x="873.0" y="389" width="53.5" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="876.01" y="399.5" >coro:..</text>
+</g>
+<g >
+<title>memory_bench_ns (8,917,917,909 samples, 92.62%)</title><rect x="97.1" y="533" width="1092.9" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="100.10" y="543.5" >memory_bench_ns</text>
+</g>
+<g >
+<title>simple_task (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="341" width="0.2" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="1186.74" y="351.5" ></text>
+</g>
+<g >
+<title>void std::_Optional_base_impl&lt;int, std::_Optional_base&lt;int, true, true&gt; &gt;::_M_construct&lt;int&gt; (4,004,004 samples, 0.04%)</title><rect x="256.3" y="325" width="0.5" height="15.0" fill="rgb(208,13,3)" rx="2" ry="2" />
+<text  x="259.33" y="335.5" ></text>
+</g>
+<g >
+<title>coro::Task&lt;int&gt;::Promise::~Promise (30,030,030 samples, 0.31%)</title><rect x="371.0" y="261" width="3.7" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="374.03" y="271.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;coro::Task&lt;int&gt;, std::allocator&lt;coro::Task&lt;int&gt; &gt; &gt;::~_Vector_base (205,205,205 samples, 2.13%)</title><rect x="261.2" y="389" width="25.2" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="264.24" y="399.5" >s..</text>
+</g>
+<g >
+<title>std::default_delete&lt;TestObject&gt;::operator (200,200,200 samples, 2.08%)</title><rect x="1057.4" y="277" width="24.5" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="1060.39" y="287.5" >s..</text>
+</g>
+<g >
+<title>std::__uniq_ptr_data&lt;TestObject, std::default_delete&lt;TestObject&gt;, true, true&gt;::__uniq_ptr_impl (46,046,046 samples, 0.48%)</title><rect x="1050.4" y="373" width="5.6" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="1053.40" y="383.5" ></text>
+</g>
+<g >
+<title>operator (607,607,607 samples, 6.31%)</title><rect x="1109.3" y="421" width="74.4" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1112.28" y="431.5" >operator</text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="517" width="0.4" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1192.63" y="527.5" ></text>
+</g>
+<g >
+<title>std::lock_guard&lt;std::mutex&gt;::lock_guard (37,037,037 samples, 0.38%)</title><rect x="1093.0" y="197" width="4.5" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1095.96" y="207.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="97.1" y="437" width="0.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="100.10" y="447.5" ></text>
+</g>
+<g >
+<title>__sbrk (1,001,001 samples, 0.01%)</title><rect x="847.1" y="325" width="0.1" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="850.13" y="335.5" ></text>
+</g>
+<g >
+<title>std::enable_if&lt;is_invocable_r_v&lt;void, coro::memory::ObjectPool&lt;TestObject, 64ul&gt;::acquire (3,003,003 samples, 0.03%)</title><rect x="1189.6" y="501" width="0.4" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1192.63" y="511.5" ></text>
+</g>
+<g >
+<title>benchmark_object_pool (3,003,003 samples, 0.03%)</title><rect x="1184.1" y="517" width="0.4" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1187.11" y="527.5" ></text>
+</g>
+<g >
+<title>std::_Vector_base&lt;double, std::allocator&lt;double&gt; &gt;::~_Vector_base (1,001,001 samples, 0.01%)</title><rect x="1006.6" y="405" width="0.1" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="1009.60" y="415.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*&gt; (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="341" width="5.3" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="1103.69" y="351.5" ></text>
+</g>
+<g >
+<title>std::enable_if&lt;is_constructible_v&lt;int, int&gt;, int&amp;&gt;::type std::optional&lt;int&gt;::emplace&lt;int&gt; (4,004,004 samples, 0.04%)</title><rect x="256.3" y="341" width="0.5" height="15.0" fill="rgb(252,217,51)" rx="2" ry="2" />
+<text  x="259.33" y="351.5" ></text>
+</g>
+<g >
+<title>operator new (40,040,040 samples, 0.42%)</title><rect x="1009.4" y="373" width="4.9" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1012.42" y="383.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::deallocate (1,001,001 samples, 0.01%)</title><rect x="1082.5" y="357" width="0.2" height="15.0" fill="rgb(212,33,8)" rx="2" ry="2" />
+<text  x="1085.54" y="367.5" ></text>
+</g>
+<g >
+<title>__default_morecore (1,001,001 samples, 0.01%)</title><rect x="639.6" y="357" width="0.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="642.56" y="367.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock (2,002,002 samples, 0.02%)</title><rect x="1018.4" y="341" width="0.2" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1021.38" y="351.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::store (4,004,004 samples, 0.04%)</title><rect x="872.5" y="373" width="0.5" height="15.0" fill="rgb(245,186,44)" rx="2" ry="2" />
+<text  x="875.52" y="383.5" ></text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;::~unique_ptr (202,202,202 samples, 2.10%)</title><rect x="1057.1" y="293" width="24.8" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1060.14" y="303.5" >s..</text>
+</g>
+<g >
+<title>__libc_start_main (8,863,863,855 samples, 92.06%)</title><rect x="97.5" y="501" width="1086.2" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="100.47" y="511.5" >__libc_start_main</text>
+</g>
+<g >
+<title>benchmark_coroutine_creation (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="517" width="0.2" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="1186.74" y="527.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_lock (4,004,004 samples, 0.04%)</title><rect x="98.7" y="357" width="0.5" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="101.69" y="367.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (205,205,205 samples, 2.13%)</title><rect x="261.2" y="277" width="25.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="264.24" y="287.5" >[..</text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::resume (129,129,129 samples, 1.34%)</title><rect x="243.0" y="389" width="15.8" height="15.0" fill="rgb(232,125,29)" rx="2" ry="2" />
+<text  x="245.96" y="399.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,001,001 samples, 0.01%)</title><rect x="659.6" y="405" width="0.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="662.56" y="415.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,001,001 samples, 0.01%)</title><rect x="97.2" y="437" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="100.22" y="447.5" ></text>
+</g>
+<g >
+<title>std::atomic&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::store (4,004,004 samples, 0.04%)</title><rect x="872.5" y="389" width="0.5" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="875.52" y="399.5" ></text>
+</g>
+<g >
+<title>benchmark&lt;benchmark_coroutine_creation (1,001,001 samples, 0.01%)</title><rect x="1183.7" y="501" width="0.2" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="1186.74" y="511.5" ></text>
+</g>
+<g >
+<title>cfree (205,205,205 samples, 2.13%)</title><rect x="261.2" y="309" width="25.2" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="264.24" y="319.5" >c..</text>
+</g>
+<g >
+<title>[libc.so.6] (21,021,021 samples, 0.22%)</title><rect x="1078.5" y="229" width="2.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1081.49" y="239.5" ></text>
+</g>
+<g >
+<title>void std::destroy_at&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (202,202,202 samples, 2.10%)</title><rect x="1057.1" y="309" width="24.8" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="1060.14" y="319.5" >v..</text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (5,005,005 samples, 0.05%)</title><rect x="1097.5" y="165" width="0.6" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1100.50" y="175.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;coro::memory::MemoryPool&lt;64ul, 64ul&gt;::FreeBlock*&gt;::compare_exchange_weak (314,314,314 samples, 3.26%)</title><rect x="888.0" y="357" width="38.5" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="890.98" y="367.5" >std..</text>
+</g>
+<g >
+<title>benchmark_memory_pool (2,002,002 samples, 0.02%)</title><rect x="1183.9" y="517" width="0.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1186.87" y="527.5" ></text>
+</g>
+<g >
+<title>std::_Tuple_impl&lt;0ul, TestObject*, std::default_delete&lt;TestObject&gt; &gt;::_Tuple_impl (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="53" width="0.1" height="15.0" fill="rgb(218,64,15)" rx="2" ry="2" />
+<text  x="1101.98" y="63.5" ></text>
+</g>
+<g >
+<title>operator (55,055,055 samples, 0.57%)</title><rect x="98.3" y="421" width="6.8" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="101.33" y="431.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::deallocate (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="325" width="0.3" height="15.0" fill="rgb(212,33,8)" rx="2" ry="2" />
+<text  x="1024.45" y="335.5" ></text>
+</g>
+<g >
+<title>decltype  (1,001,001 samples, 0.01%)</title><rect x="1099.0" y="133" width="0.1" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="1101.98" y="143.5" ></text>
+</g>
+<g >
+<title>benchmark_work_stealing (634,634,634 samples, 6.59%)</title><rect x="1106.0" y="453" width="77.7" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="1108.97" y="463.5" >benchmar..</text>
+</g>
+<g >
+<title>void std::_Destroy&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;*, std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (43,043,043 samples, 0.45%)</title><rect x="1100.7" y="357" width="5.3" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="1103.69" y="367.5" ></text>
+</g>
+<g >
+<title>coro::WorkStealQueue&lt;unsigned long&gt;::push (409,409,409 samples, 4.25%)</title><rect x="1133.6" y="405" width="50.1" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="1136.57" y="415.5" >coro:..</text>
+</g>
+<g >
+<title>std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;&amp; std::vector&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::emplace_back&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (5,005,005 samples, 0.05%)</title><rect x="1081.9" y="389" width="0.6" height="15.0" fill="rgb(218,64,15)" rx="2" ry="2" />
+<text  x="1084.92" y="399.5" ></text>
+</g>
+<g >
+<title>void std::_Destroy&lt;coro::Task&lt;int&gt;*&gt; (732,732,732 samples, 7.61%)</title><rect x="286.4" y="373" width="89.8" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="289.38" y="383.5" >void std::..</text>
+</g>
+<g >
+<title>std::__new_allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt;::deallocate (2,002,002 samples, 0.02%)</title><rect x="1021.4" y="293" width="0.3" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="1024.45" y="303.5" ></text>
+</g>
+<g >
+<title>void std::deque&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::_M_push_back_aux&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; (5,005,005 samples, 0.05%)</title><rect x="1099.1" y="149" width="0.6" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1102.10" y="159.5" ></text>
+</g>
+<g >
+<title>all (9,628,628,619 samples, 100%)</title><rect x="10.0" y="549" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="559.5" ></text>
+</g>
+<g >
+<title>malloc@plt (1,001,001 samples, 0.01%)</title><rect x="1050.3" y="373" width="0.1" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1053.27" y="383.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;void*&gt; &gt;::deallocate (354,354,354 samples, 3.68%)</title><rect x="963.2" y="357" width="43.4" height="15.0" fill="rgb(213,38,9)" rx="2" ry="2" />
+<text  x="966.18" y="367.5" >std:..</text>
+</g>
+<g >
+<title>std::__detail::_MakeUniq&lt;TestObject&gt;::__single_object std::make_unique&lt;TestObject&gt; (253,253,253 samples, 2.63%)</title><rect x="1025.0" y="405" width="31.0" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="1028.00" y="415.5" >st..</text>
+</g>
+<g >
+<title>[libc.so.6] (1,001,001 samples, 0.01%)</title><rect x="1021.6" y="245" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1024.57" y="255.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;coro::Task&lt;int&gt;::Promise&gt;::operator bool (18,018,018 samples, 0.19%)</title><rect x="238.8" y="389" width="2.2" height="15.0" fill="rgb(246,188,45)" rx="2" ry="2" />
+<text  x="241.79" y="399.5" ></text>
+</g>
+<g >
+<title>__gthread_mutex_lock (1,001,001 samples, 0.01%)</title><rect x="1015.6" y="357" width="0.1" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1018.56" y="367.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;void*, std::allocator&lt;void*&gt; &gt;::reserve (89,089,089 samples, 0.93%)</title><rect x="952.3" y="405" width="10.9" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="955.26" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Function_handler&lt;void  (18,018,018 samples, 0.19%)</title><rect x="1084.1" y="149" width="2.2" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1087.13" y="159.5" ></text>
+</g>
+<g >
+<title>coro::memory::MemoryPool&lt;64ul, 64ul&gt;::allocate (566,566,566 samples, 5.88%)</title><rect x="803.6" y="405" width="69.4" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="806.58" y="415.5" >coro::m..</text>
+</g>
+<g >
+<title>[libc.so.6] (89,089,089 samples, 0.93%)</title><rect x="952.3" y="277" width="10.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="955.26" y="287.5" ></text>
+</g>
+<g >
+<title>benchmark_object_pool (1,001,001 samples, 0.01%)</title><rect x="1184.4" y="421" width="0.1" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1187.36" y="431.5" ></text>
+</g>
+<g >
+<title>operator new (89,089,089 samples, 0.93%)</title><rect x="952.3" y="309" width="10.9" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="955.26" y="319.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;void*, std::allocator&lt;void*&gt; &gt;::push_back (151,151,151 samples, 1.57%)</title><rect x="933.7" y="405" width="18.6" height="15.0" fill="rgb(252,217,51)" rx="2" ry="2" />
+<text  x="936.73" y="415.5" ></text>
+</g>
+<g >
+<title>std::__exception_ptr::exception_ptr::~exception_ptr (30,030,030 samples, 0.31%)</title><rect x="371.0" y="229" width="3.7" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="374.03" y="239.5" ></text>
+</g>
+<g >
+<title>std::__atomic_base&lt;unsigned long&gt;::store (106,106,106 samples, 1.10%)</title><rect x="1170.7" y="389" width="13.0" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1173.74" y="399.5" ></text>
+</g>
+<g >
+<title>std::__n4861::coroutine_handle&lt;void&gt;::coroutine_handle (8,008,008 samples, 0.08%)</title><rect x="111.6" y="357" width="1.0" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="114.57" y="367.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,001,001 samples, 0.01%)</title><rect x="97.2" y="421" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="100.22" y="431.5" ></text>
+</g>
+<g >
+<title>std::_Deque_base&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt;, std::allocator&lt;std::unique_ptr&lt;TestObject, std::default_delete&lt;TestObject&gt; &gt; &gt; &gt;::~_Deque_base (1,001,001 samples, 0.01%)</title><rect x="1100.6" y="389" width="0.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1103.57" y="399.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (3,003,003 samples, 0.03%)</title><rect x="98.8" y="341" width="0.4" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="101.82" y="351.5" ></text>
+</g>
+</g>
+</svg>
