@@ -1,6 +1,10 @@
 #pragma once
 
+#include "coro/core/task.hpp"
+#include "coro/io/tcp.hpp"
+
 #include <cstdint>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -25,6 +29,7 @@ enum class Status : uint16_t {
     NotFound = 404,
     MethodNotAllowed = 405,
     Conflict = 409,
+    TooManyRequests = 429,
     InternalServerError = 500,
     NotImplemented = 501,
     BadGateway = 502,
@@ -47,6 +52,7 @@ inline std::string status_text(Status status) {
         case Status::NotFound: return "Not Found";
         case Status::MethodNotAllowed: return "Method Not Allowed";
         case Status::Conflict: return "Conflict";
+        case Status::TooManyRequests: return "Too Many Requests";
         case Status::InternalServerError: return "Internal Server Error";
         case Status::NotImplemented: return "Not Implemented";
         case Status::BadGateway: return "Bad Gateway";
@@ -129,6 +135,28 @@ public:
         return *this;
     }
 
+    // Streaming responses --------------------------------------------------
+    // Writer invoked by the server after headers are sent. It may write
+    // chunked-encoded body chunks directly to the TcpStream. The server will
+    // send the final empty chunk after the writer returns.
+    using StreamWriter = std::function<Task<void>(io::TcpStream&)>;
+
+    Response& stream(StreamWriter writer) {
+        streaming_ = true;
+        stream_writer_ = std::move(writer);
+        return *this;
+    }
+
+    [[nodiscard]] bool is_streaming() const noexcept { return streaming_; }
+    [[nodiscard]] const StreamWriter& stream_writer() const noexcept { return stream_writer_; }
+
+    // Helper to encode a single chunk for Transfer-Encoding: chunked.
+    [[nodiscard]] static std::string chunk(const std::string& data) {
+        std::ostringstream oss;
+        oss << std::hex << data.size() << "\r\n" << data << "\r\n";
+        return oss.str();
+    }
+
     // Build response to string
     [[nodiscard]] std::string build() const {
         std::ostringstream oss;
@@ -166,6 +194,8 @@ public:
     // Getters
     [[nodiscard]] Status status_code() const noexcept { return status_code_; }
     [[nodiscard]] const std::string& get_body() const noexcept { return body_; }
+    [[nodiscard]] const std::unordered_map<std::string, std::string>& headers() const noexcept { return headers_; }
+    [[nodiscard]] const std::string& version() const noexcept { return version_; }
 
     // Static factory methods for common responses
     static Response ok(const std::string& body = "") {
@@ -193,6 +223,8 @@ private:
     std::string version_ = "HTTP/1.1";
     std::unordered_map<std::string, std::string> headers_;
     std::string body_;
+    bool streaming_ = false;
+    StreamWriter stream_writer_;
 };
 
 } // namespace http
